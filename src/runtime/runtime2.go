@@ -419,6 +419,51 @@ type heldLockInfo struct {
 	rank     lockRank
 }
 
+func strStatus(val uint32) string {
+	switch val {
+	case _Gidle:
+		return "idle"
+	case _Grunnable:
+		return "runnable"
+	case _Grunning:
+		return "running"
+	case _Gsyscall:
+		return "syscall"
+	case _Gwaiting:
+		return "waiting"
+	case _Gmoribund_unused:
+		return "moribund_unused"
+	case _Gdead:
+		return "dead"
+	case _Genqueue_unused:
+		return "enqueue_unused"
+	case _Gcopystack:
+		return "copystack"
+	case _Gpreempted:
+		return "preempted"
+	case _Gscan:
+		return "scan"
+	case _Gscanrunnable:
+		return "scanrunnable"
+	case _Gscanrunning:
+		return "scanrunning"
+	case _Gscansyscall:
+		return "scansyscall"
+	case _Gscanwaiting:
+		return "scanwaiting"
+	case _Gscanpreempted:
+		return "scanpreempted"
+	default:
+		return "unknown"
+	}
+}
+
+type Goroutine struct {
+	GoID      uint64
+	Status    string
+	MachineID int64
+}
+
 type g struct {
 	// Stack parameters.
 	// stack describes the actual stack memory: [stack.lo, stack.hi).
@@ -548,6 +593,13 @@ const (
 	freeMRef   = 1 // M done, free reference.
 	freeMWait  = 2 // M still in use.
 )
+
+type Machine struct {
+	G0          *Goroutine
+	CurG        *Goroutine
+	ID          int64
+	ProcessorID int32
+}
 
 type m struct {
 	g0      *g     // goroutine with scheduling stack
@@ -1182,31 +1234,84 @@ var (
 	newprocs   int32
 )
 
-func AllPsSnapshot() []*p {
-	assertWorldStoppedOrLockHeld(&allpLock)
-	return allp[:len(allp):len(allp)]
+type Processor struct {
+	ID      int32
+	Machine *Machine
+	Runq    []*Goroutine
 }
 
-func LocalRunq() []*g {
-	var gs []*g
-	ps := AllPsSnapshot()
-	for _, p := range ps {
-		var i int32
-		for {
-			gp := p.runq[i].ptr()
-			if gp == nil {
-				break
+func AllPsSnapshot() []*Processor {
+	assertWorldStoppedOrLockHeld(&allpLock)
+	allps := allp[:len(allp):len(allp)]
+	var ps []*Processor
+	for _, p := range allps {
+		m := p.m.ptr()
+		if m == nil {
+			continue
+		}
+		g0 := &Goroutine{
+			GoID:      m.g0.goid,
+			Status:    strStatus(m.g0.atomicstatus.Load()),
+			MachineID: m.id,
+		}
+		var curg *Goroutine
+		if m.curg != nil {
+			curg = &Goroutine{
+				GoID:      m.curg.goid,
+				Status:    strStatus(m.curg.atomicstatus.Load()),
+				MachineID: m.id,
 			}
-			gs = append(gs, gp)
-			i++
+		}
+		machine := &Machine{
+			G0:          g0,
+			CurG:        curg,
+			ProcessorID: p.id,
+			ID:          m.id,
+		}
+		runq := localRunq(p)
+		var gs []*Goroutine
+		for _, g := range runq {
+			gs = append(gs, &Goroutine{
+				GoID:      g.goid,
+				Status:    strStatus(g.atomicstatus.Load()),
+				MachineID: m.id,
+			})
+		}
+		processor := &Processor{
+			ID:      p.id,
+			Machine: machine,
+			Runq:    gs,
+		}
+		ps = append(ps, processor)
+	}
+	return ps
+}
+
+func localRunq(p *p) []*g {
+	var gs []*g
+	for {
+		gp, _ := runqget(p)
+		if gp == nil {
+			return gs
+		}
+		gs = append(gs, gp)
+	}
+}
+
+func GlobalRunq() []*Goroutine {
+	assertWorldStoppedOrLockHeld(&sched.lock)
+	runq := sched.runq.listSnapShot()
+	var gs []*Goroutine
+	for _, item := range runq {
+		g := &Goroutine{
+			GoID:   item.goid,
+			Status: strStatus(item.atomicstatus.Load()),
+		}
+		if item.m != nil {
+			g.MachineID = item.m.id
 		}
 	}
 	return gs
-}
-
-func GlobalRunq() []*g {
-	assertWorldStoppedOrLockHeld(&sched.lock)
-	return sched.runq.listSnapShot()
 }
 
 var (
