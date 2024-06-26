@@ -1182,6 +1182,33 @@ var (
 	newprocs   int32
 )
 
+func AllPsSnapshot() []*p {
+	assertWorldStoppedOrLockHeld(&allpLock)
+	return allp[:len(allp):len(allp)]
+}
+
+func LocalRunq() []*g {
+	var gs []*g
+	ps := AllPsSnapshot()
+	for _, p := range ps {
+		var i int32
+		for {
+			gp := p.runq[i].ptr()
+			if gp == nil {
+				break
+			}
+			gs = append(gs, gp)
+			i++
+		}
+	}
+	return gs
+}
+
+func GlobalRunq() []*g {
+	assertWorldStoppedOrLockHeld(&sched.lock)
+	return sched.runq.listSnapShot()
+}
+
 var (
 	// allpLock protects P-less reads and size changes of allp, idlepMask,
 	// and timerpMask, and all writes to allp.

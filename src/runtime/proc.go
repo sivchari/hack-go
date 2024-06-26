@@ -7011,6 +7011,15 @@ func (q *gQueue) popList() gList {
 	return stack
 }
 
+func (q *gQueue) listSnapShot() []*g {
+	shallowq := *q
+	var glist []*g
+	for !shallowq.empty() {
+		glist = append(glist, shallowq.pop())
+	}
+	return glist
+}
+
 // A gList is a list of Gs linked through g.schedlink. A G can only be
 // on one gQueue or gList at a time.
 type gList struct {

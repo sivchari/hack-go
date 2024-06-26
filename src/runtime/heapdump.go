@@ -559,6 +559,14 @@ func dumpms() {
 	}
 }
 
+func AllMsSnapshot() []*m {
+	var ms []*m
+	for mp := allm; mp != nil; mp = mp.alllink {
+		ms = append(ms, mp)
+	}
+	return ms
+}
+
 //go:systemstack
 func dumpmemstats(m *MemStats) {
 	assertWorldStopped()
