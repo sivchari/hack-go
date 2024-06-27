@@ -1241,12 +1241,13 @@ type Processor struct {
 }
 
 func AllPsSnapshot() []*Processor {
-	assertWorldStoppedOrLockHeld(&allpLock)
-	allps := allp[:len(allp):len(allp)]
 	var ps []*Processor
-	for _, p := range allps {
+	for _, p := range allp {
 		m := p.m.ptr()
 		if m == nil {
+			ps = append(ps, &Processor{
+				ID: p.id,
+			})
 			continue
 		}
 		g0 := &Goroutine{
